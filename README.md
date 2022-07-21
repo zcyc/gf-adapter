@@ -9,6 +9,7 @@ Based on [GF ORM](https://github.com/gogf/gf), and tested in:
 ## Installation
 
     go get github.com/zcyc/gf-adapter
+    go mod tidy
 
 ## Usage example
 

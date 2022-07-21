@@ -8,8 +8,6 @@ import (
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
 	"github.com/gogf/gf/v2/database/gdb"
-
-	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
 )
 
 type CasbinRule struct {
