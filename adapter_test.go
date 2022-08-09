@@ -1,143 +1,93 @@
 package adapter
 
 import (
-	"log"
+	"net/http"
 	"testing"
 
 	"github.com/casbin/casbin/v2"
-	"github.com/casbin/casbin/v2/util"
-
+	_ "github.com/gogf/gf/contrib/drivers/clickhouse/v2"
+	_ "github.com/gogf/gf/contrib/drivers/mssql/v2"
 	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
+	_ "github.com/gogf/gf/contrib/drivers/pgsql/v2"
+	_ "github.com/gogf/gf/contrib/drivers/sqlite/v2"
+
+	// _ "github.com/gogf/gf/contrib/drivers/oracle/v2"
+	"github.com/gogf/gf/v2/database/gdb"
 )
 
-func testGetPolicy(t *testing.T, e *casbin.Enforcer, res [][]string) {
-	myRes := e.GetPolicy()
-	log.Print("Policy: ", myRes)
+const (
+	ActionGet    = "GET"
+	ActionPost   = "POST"
+	ActionPut    = "PUT"
+	ActionDelete = "DELETE"
+	ActionAll    = "GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD"
+	AdminName    = "admin" //超级管理员用户名
+)
 
-	if !util.Array2DEquals(res, myRes) {
-		t.Error("Policy: ", myRes, ", supposed to be ", res)
-	}
-}
+var myDB gdb.DB
+var Enforcer *casbin.Enforcer
 
-func initPolicy(t *testing.T, a *Adapter) {
-	// Because the DB is empty at first,
-	// so we need to load the policy from the file adapter (.CSV) first.
-	e, err := casbin.NewEnforcer("examples/rbac_model.conf", "examples/rbac_policy.csv")
-	if err != nil {
-		panic(err)
-	}
-
-	// This is a trick to save the current policy to the DB.
-	// We can't call e.SavePolicy() because the adapter in the enforcer is still the file adapter.
-	// The current policy means the policy in the Casbin enforcer (aka in memory).
-	err = a.SavePolicy(e.GetModel())
-	if err != nil {
-		panic(err)
-	}
-
-	// Clear the current policy.
-	e.ClearPolicy()
-	testGetPolicy(t, e, [][]string{})
-
-	// Load the policy from DB.
-	err = a.LoadPolicy(e.GetModel())
-	if err != nil {
-		panic(err)
-	}
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
-}
-
-func testSaveLoad(t *testing.T, a *Adapter) {
-	// Initialize some policy in DB.
-	initPolicy(t, a)
-	// Note: you don't need to look at the above code
-	// if you already have a working DB with policy inside.
-
-	// Now the DB has policy, so we can provide a normal use case.
-	// Create an adapter and an enforcer.
-	// NewEnforcer() will load the policy automatically.
-
-	e, _ := casbin.NewEnforcer("examples/rbac_model.conf", a)
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
-}
-
-func initAdapter(t *testing.T, driverName string, dataSourceName string) *Adapter {
-	// Create an adapter
-	a, err := NewAdapter(driverName, dataSourceName)
-	if err != nil {
-		panic(err)
-	}
-
-	// Initialize some policy in DB.
-	initPolicy(t, a)
-	// Now the DB has policy, so we can provide a normal use case.
-	// Note: you don't need to look at the above code
-	// if you already have a working DB with policy inside.
-
-	return a
-}
-
-func initAdapterFormOptions(t *testing.T, adapter *Adapter) *Adapter {
-	// Create an adapter
-	a, _ := NewAdapterFromOptions(adapter)
-	// Initialize some policy in DB.
-	initPolicy(t, a)
-	// Now the DB has policy, so we can provide a normal use case.
-	// Note: you don't need to look at the above code
-	// if you already have a working DB with policy inside.
-
-	return a
-}
-
-func testAutoSave(t *testing.T, a *Adapter) {
-
-	// NewEnforcer() will load the policy automatically.
-	e, _ := casbin.NewEnforcer("examples/rbac_model.conf", a)
-
-	// AutoSave is enabled by default.
-	// Now we disable it.
-	e.EnableAutoSave(false)
-
-	// Because AutoSave is disabled, the policy change only affects the policy in Casbin enforcer,
-	// it doesn't affect the policy in the storage.
-	e.AddPolicy("alice", "data1", "write")
-	// Reload the policy from the storage to see the effect.
-	e.LoadPolicy()
-	// This is still the original policy.
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
-
-	// Now we enable the AutoSave.
-	e.EnableAutoSave(true)
-
-	// Because AutoSave is enabled, the policy change not only affects the policy in Casbin enforcer,
-	// but also affects the policy in the storage.
-	e.AddPolicy("alice", "data1", "write")
-	// Reload the policy from the storage to see the effect.
-	e.LoadPolicy()
-	// The policy has a new rule: {"alice", "data1", "write"}.
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}, {"alice", "data1", "write"}})
-
-	// Remove the added rule.
-	e.RemovePolicy("alice", "data1", "write")
-	e.LoadPolicy()
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}, {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"}})
-
-	// Remove "data2_admin" related policy rules via a filter.
-	// Two rules: {"data2_admin", "data2", "read"}, {"data2_admin", "data2", "write"} are deleted.
-	e.RemoveFilteredPolicy(0, "data2_admin")
-	e.LoadPolicy()
-	testGetPolicy(t, e, [][]string{{"alice", "data1", "read"}, {"bob", "data2", "write"}})
-}
-
-func TestAdapters(t *testing.T) {
-	a := initAdapter(t, "mysql", "root:root@tcp(127.0.0.1:3306)/casbin")
-	testAutoSave(t, a)
-	testSaveLoad(t, a)
-
-	a = initAdapterFormOptions(t, &Adapter{
-		DriverName:     "mysql",
-		DataSourceName: "root:root@tcp(127.0.0.1:3306)/casbin",
+// init description
+func init() {
+	var err error
+	myDB, err = gdb.New(gdb.ConfigNode{
+		Type: "mysql",
+		Link: "root:toor@tcp(localhost:3306)/yhy",
 	})
-	testAutoSave(t, a)
-	testSaveLoad(t, a)
+	if err != nil {
+		panic(err)
+	}
+	a := NewAdapter(Options{GDB: myDB})
+	Enforcer, err = casbin.NewEnforcer("./examples/rbac_model.conf", a)
+	if err != nil {
+		panic(err)
+	}
+	err = Enforcer.LoadPolicy()
+	if err != nil {
+		panic(err)
+	}
+}
+
+// TestNew description
+func TestNew(t *testing.T) {
+	user := AdminName
+	path := "/"
+	method := http.MethodGet
+	t.Logf("\nuser:%v\npath:%v\nmethod:%v", user, path, method)
+
+	ok, err := Enforcer.DeletePermissionsForUser(user)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Logf("delete user premission:%v", ok)
+	CheckPremission(t, user, path, method)
+	AddPremission(t, user, "*", ActionAll)
+	CheckPremission(t, user, path, method)
+
+	user1 := "user1"
+	path1 := "/api/v1/*"
+	checkPathTrue := "/api/v1/user/list"
+	checkPathFalse := "/api/v2/user/list"
+	AddPremission(t, user1, path1, ActionGet)
+	CheckPremission(t, user1, checkPathTrue, ActionPost)
+	CheckPremission(t, user1, checkPathFalse, http.MethodGet)
+	CheckPremission(t, user1, checkPathTrue, http.MethodGet)
+}
+
+// CheckPremission description
+func CheckPremission(t *testing.T, user string, path string, method string) {
+	ok, err := Enforcer.Enforce(user, path, method)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Logf("check \tuser[%s] \tpremission[%s] \tpath[%s] \tallow[%v]", user, method, path, ok)
+}
+
+// Add description
+func AddPremission(t *testing.T, user string, path string, method string) {
+	ok, err := Enforcer.AddPolicy(user, path, method)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Logf("add \tuser[%s] \tpremission[%s] \tpath[%s] \tresult[%v]", user, method, path, ok)
 }
