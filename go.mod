@@ -1,4 +1,4 @@
-module github.com/zcyc/gf-adapter
+module github.com/zcyc/gf-adapter/v2
 
 go 1.19
 
