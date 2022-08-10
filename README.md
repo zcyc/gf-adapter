@@ -8,22 +8,18 @@ Based on [GF ORM](https://github.com/gogf/gf), and tested in:
 
 ## Installation
 
-    go get github.com/zcyc/gf-adapter
+    go get github.com/zcyc/gf-adapter/v2
     go mod tidy
 
 ## Usage example
 
 ```go
-opts := &Adapter{
-    DriverName: "mysql",
-    DataSourceName: "root:1234@tcp(127.0.0.1:3306)/casbin",
-    TableName: "casbin_rule",
-    // or reuse an existing connection:
-    // Db: yourDBConn,
-}
-
-a := NewAdapterFromOptions(opts)
-e := casbin.NewEnforcer("examples/rbac_model.conf", a)
+myDB, _ := gdb.New(gdb.ConfigNode{
+    Type: "mysql",
+    Link: "root:root@tcp(127.0.0.1:3306)/casbin",
+})
+a, _ := NewAdapter(myDB, "", "casbin_rule")
+Enforcer, err = casbin.NewEnforcer("./examples/rbac_model.conf", a)
 ```
 
 ## Notice

@@ -24,20 +24,19 @@ const (
 	AdminName    = "admin" //超级管理员用户名
 )
 
-var myDB gdb.DB
 var Enforcer *casbin.Enforcer
 
 // init description
 func init() {
 	var err error
-	myDB, err = gdb.New(gdb.ConfigNode{
+	myDB, err := gdb.New(gdb.ConfigNode{
 		Type: "mysql",
-		Link: "root:toor@tcp(localhost:3306)/yhy",
+		Link: "root:root@tcp(127.0.0.1:3306)/casbin",
 	})
 	if err != nil {
 		panic(err)
 	}
-	a := NewAdapter(Options{GDB: myDB})
+	a, _ := NewAdapter(myDB, "", "casbin_rule")
 	Enforcer, err = casbin.NewEnforcer("./examples/rbac_model.conf", a)
 	if err != nil {
 		panic(err)
