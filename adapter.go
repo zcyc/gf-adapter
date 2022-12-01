@@ -27,30 +27,28 @@ CREATE TABLE IF NOT EXISTS %s (
   created_at datetime DEFAULT CURRENT_TIMESTAMP,
   updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 `
 )
 
 type (
-	adapter struct {
+	Adapter struct {
 		db    gdb.DB
 		table string
 	}
 
 	policyColumns struct {
-		ID    string // ID
-		PType string // PType
-		V0    string // V0
-		V1    string // V1
-		V2    string // V2
-		V3    string // V3
-		V4    string // V4
-		V5    string // V5
+		PType string
+		V0    string
+		V1    string
+		V2    string
+		V3    string
+		V4    string
+		V5    string
 	}
 
 	// policy rule entity
 	policyRule struct {
-		ID    int64  `orm:"id" json:"id"`
 		PType string `orm:"p_type" json:"p_type"`
 		V0    string `orm:"v0" json:"v0"`
 		V1    string `orm:"v1" json:"v1"`
@@ -64,7 +62,6 @@ type (
 var (
 	errInvalidDatabaseLink = errors.New("invalid database link")
 	policyColumnsName      = policyColumns{
-		ID:    "id",
 		PType: "p_type",
 		V0:    "v0",
 		V1:    "v1",
@@ -76,8 +73,8 @@ var (
 )
 
 // NewAdapter Create a casbin adapter
-func NewAdapter(db gdb.DB, link, table string) (adp *adapter, err error) {
-	adp = &adapter{db, table}
+func NewAdapter(db gdb.DB, link, table string) (adp *Adapter, err error) {
+	adp = &Adapter{db, table}
 
 	if adp.db == nil {
 		config := strings.SplitN(link, ":", 2)
@@ -101,26 +98,26 @@ func NewAdapter(db gdb.DB, link, table string) (adp *adapter, err error) {
 	return
 }
 
-func (a *adapter) model() *gdb.Model {
+func (a *Adapter) model() *gdb.Model {
 	return a.db.Model(a.table).Safe().Ctx(context.TODO())
 }
 
 // create a policy table when it's not exists.
-func (a *adapter) createPolicyTable() (err error) {
+func (a *Adapter) createPolicyTable() (err error) {
 	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(createPolicyTableSql, a.table))
 
 	return
 }
 
 // drop policy table from the storage.
-func (a *adapter) dropPolicyTable() (err error) {
+func (a *Adapter) dropPolicyTable() (err error) {
 	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(dropPolicyTableSql, a.table))
 
 	return
 }
 
 // LoadPolicy loads all policy rules from the storage.
-func (a *adapter) LoadPolicy(model model.Model) (err error) {
+func (a *Adapter) LoadPolicy(model model.Model) (err error) {
 	var rules []policyRule
 
 	if err = a.model().Scan(&rules); err != nil {
@@ -135,7 +132,7 @@ func (a *adapter) LoadPolicy(model model.Model) (err error) {
 }
 
 // SavePolicy Saves all policy rules to the storage.
-func (a *adapter) SavePolicy(model model.Model) (err error) {
+func (a *Adapter) SavePolicy(model model.Model) (err error) {
 	if err = a.dropPolicyTable(); err != nil {
 		return
 	}
@@ -146,15 +143,15 @@ func (a *adapter) SavePolicy(model model.Model) (err error) {
 
 	policyRules := make([]policyRule, 0)
 
-	for ptype, ast := range model["p"] {
+	for pType, ast := range model["p"] {
 		for _, rule := range ast.Policy {
-			policyRules = append(policyRules, a.buildPolicyRule(ptype, rule))
+			policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
 		}
 	}
 
-	for ptype, ast := range model["g"] {
+	for pType, ast := range model["g"] {
 		for _, rule := range ast.Policy {
-			policyRules = append(policyRules, a.buildPolicyRule(ptype, rule))
+			policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
 		}
 	}
 
@@ -168,14 +165,14 @@ func (a *adapter) SavePolicy(model model.Model) (err error) {
 }
 
 // AddPolicy adds a policy rule to the storage.
-func (a *adapter) AddPolicy(sec string, ptype string, rule []string) (err error) {
-	_, err = a.model().Insert(a.buildPolicyRule(ptype, rule))
+func (a *Adapter) AddPolicy(sec string, pType string, rule []string) (err error) {
+	_, err = a.model().Insert(a.buildPolicyRule(pType, rule))
 
 	return
 }
 
 // AddPolicies adds policy rules to the storage.
-func (a *adapter) AddPolicies(sec string, ptype string, rules [][]string) (err error) {
+func (a *Adapter) AddPolicies(sec string, pType string, rules [][]string) (err error) {
 	if len(rules) == 0 {
 		return
 	}
@@ -183,7 +180,7 @@ func (a *adapter) AddPolicies(sec string, ptype string, rules [][]string) (err e
 	policyRules := make([]policyRule, 0, len(rules))
 
 	for _, rule := range rules {
-		policyRules = append(policyRules, a.buildPolicyRule(ptype, rule))
+		policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
 	}
 
 	_, err = a.model().Insert(policyRules)
@@ -192,9 +189,9 @@ func (a *adapter) AddPolicies(sec string, ptype string, rules [][]string) (err e
 }
 
 // RemovePolicy removes a policy rule from the storage.
-func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) (err error) {
+func (a *Adapter) RemovePolicy(sec string, pType string, rule []string) (err error) {
 	db := a.model()
-	db = db.Where(policyColumnsName.PType, ptype)
+	db = db.Where(policyColumnsName.PType, pType)
 	for index := 0; index < len(rule); index++ {
 		db = db.Where(fmt.Sprintf("v%d", index), rule[index])
 	}
@@ -203,9 +200,9 @@ func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) (err err
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage.
-func (a *adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) (err error) {
+func (a *Adapter) RemoveFilteredPolicy(sec string, pType string, fieldIndex int, fieldValues ...string) (err error) {
 	db := a.model()
-	db = db.Where(policyColumnsName.PType, ptype)
+	db = db.Where(policyColumnsName.PType, pType)
 	for index := 0; index <= 5; index++ {
 		if fieldIndex <= index && index < fieldIndex+len(fieldValues) {
 			db = db.Where(fmt.Sprintf("v%d", index), fieldValues[index-fieldIndex])
@@ -216,11 +213,11 @@ func (a *adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int,
 }
 
 // RemovePolicies removes policy rules from the storage (implements the persist.BatchAdapter interface).
-func (a *adapter) RemovePolicies(sec string, ptype string, rules [][]string) (err error) {
+func (a *Adapter) RemovePolicies(sec string, pType string, rules [][]string) (err error) {
 	db := a.model()
 
 	for _, rule := range rules {
-		where := map[string]interface{}{policyColumnsName.PType: ptype}
+		where := map[string]interface{}{policyColumnsName.PType: pType}
 
 		for i := 0; i <= 5; i++ {
 			if len(rule) > i {
@@ -237,21 +234,21 @@ func (a *adapter) RemovePolicies(sec string, ptype string, rules [][]string) (er
 }
 
 // UpdatePolicy updates a policy rule from storage.
-func (a *adapter) UpdatePolicy(sec string, ptype string, oldRule, newRule []string) (err error) {
-	_, err = a.model().Update(a.buildPolicyRule(ptype, newRule), a.buildPolicyRule(ptype, oldRule))
+func (a *Adapter) UpdatePolicy(sec string, pType string, oldRule, newRule []string) (err error) {
+	_, err = a.model().Update(a.buildPolicyRule(pType, newRule), a.buildPolicyRule(pType, oldRule))
 
 	return
 }
 
 // UpdatePolicies updates some policy rules to storage, like db, redis.
-func (a *adapter) UpdatePolicies(sec string, ptype string, oldRules, newRules [][]string) (err error) {
+func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules [][]string) (err error) {
 	if len(oldRules) == 0 || len(newRules) == 0 {
 		return
 	}
 
 	err = a.db.Transaction(context.TODO(), func(ctx context.Context, tx *gdb.TX) error {
 		for i := 0; i < int(math.Min(float64(len(oldRules)), float64(len(newRules)))); i++ {
-			if _, err = tx.Model(a.table).Update(a.buildPolicyRule(ptype, newRules[i]), a.buildPolicyRule(ptype, oldRules[i])); err != nil {
+			if _, err = tx.Model(a.table).Update(a.buildPolicyRule(pType, newRules[i]), a.buildPolicyRule(pType, oldRules[i])); err != nil {
 				return err
 			}
 		}
@@ -263,7 +260,7 @@ func (a *adapter) UpdatePolicies(sec string, ptype string, oldRules, newRules []
 }
 
 // 加载策略规则
-func (a *adapter) loadPolicyRule(rule policyRule, model model.Model) {
+func (a *Adapter) loadPolicyRule(rule policyRule, model model.Model) {
 	ruleText := rule.PType
 
 	if rule.V0 != "" {
@@ -294,8 +291,8 @@ func (a *adapter) loadPolicyRule(rule policyRule, model model.Model) {
 }
 
 // 构建策略规则
-func (a *adapter) buildPolicyRule(ptype string, data []string) policyRule {
-	rule := policyRule{PType: ptype}
+func (a *Adapter) buildPolicyRule(pType string, data []string) policyRule {
+	rule := policyRule{PType: pType}
 
 	if len(data) > 0 {
 		rule.V0 = data[0]
