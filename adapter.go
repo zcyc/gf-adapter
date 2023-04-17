@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	defaultTableName     = "casbin_rule"
-	dropPolicyTableSql   = `DROP TABLE IF EXISTS %s`
-	createPolicyTableSql = `
+	tableName      = "casbin_rule"
+	dropTableSql   = `DROP TABLE IF EXISTS %s`
+	createTableSql = `
 CREATE TABLE IF NOT EXISTS %s (
   id bigint NOT NULL AUTO_INCREMENT,
   p_type varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS %s (
 
 type (
 	Adapter struct {
-		db    gdb.DB
-		table string
+		db        gdb.DB
+		tableName string
 	}
 
 	policyColumns struct {
@@ -88,29 +88,29 @@ func NewAdapter(db gdb.DB, link, table string) (adp *Adapter, err error) {
 		}
 	}
 
-	if adp.table == "" {
-		adp.table = defaultTableName
+	if adp.tableName == "" {
+		adp.tableName = tableName
 	}
 
-	err = adp.createPolicyTable()
+	err = adp.createTable()
 
 	return
 }
 
 func (a *Adapter) model() *gdb.Model {
-	return a.db.Model(a.table).Safe().Ctx(context.TODO())
+	return a.db.Model(a.tableName).Safe().Ctx(context.TODO())
 }
 
-// create a policy table when it's not exists.
-func (a *Adapter) createPolicyTable() (err error) {
-	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(createPolicyTableSql, a.table))
+// create a policy tableName when it's not exists.
+func (a *Adapter) createTable() (err error) {
+	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(createTableSql, a.tableName))
 
 	return
 }
 
-// drop policy table from the storage.
-func (a *Adapter) dropPolicyTable() (err error) {
-	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(dropPolicyTableSql, a.table))
+// drop policy tableName from the storage.
+func (a *Adapter) dropTable() (err error) {
+	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(dropTableSql, a.tableName))
 
 	return
 }
@@ -132,11 +132,11 @@ func (a *Adapter) LoadPolicy(model model.Model) (err error) {
 
 // SavePolicy Saves all policy rules to the storage.
 func (a *Adapter) SavePolicy(model model.Model) (err error) {
-	if err = a.dropPolicyTable(); err != nil {
+	if err = a.dropTable(); err != nil {
 		return
 	}
 
-	if err = a.createPolicyTable(); err != nil {
+	if err = a.createTable(); err != nil {
 		return
 	}
 
@@ -247,7 +247,7 @@ func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules []
 
 	err = a.db.Transaction(context.TODO(), func(ctx context.Context, tx gdb.TX) error {
 		for i := 0; i < int(math.Min(float64(len(oldRules)), float64(len(newRules)))); i++ {
-			if _, err = tx.Model(a.table).Update(a.buildPolicyRule(pType, newRules[i]), a.buildPolicyRule(pType, oldRules[i])); err != nil {
+			if _, err = tx.Model(a.tableName).Update(a.buildPolicyRule(pType, newRules[i]), a.buildPolicyRule(pType, oldRules[i])); err != nil {
 				return err
 			}
 		}
