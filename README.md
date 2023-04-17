@@ -1,4 +1,4 @@
-gf-adapter [![Build Status](https://travis-ci.org/zcyc/gf-adapter.svg?branch=master)](https://travis-ci.org/zcyc/gf-adapter) [![Coverage Status](https://coveralls.io/repos/github/zcyc/gf-adapter/badge.svg?branch=master)](https://coveralls.io/github/zcyc/gf-adapter?branch=master) [![Godoc](https://godoc.org/github.com/zcyc/gf-adapter?status.svg)](https://godoc.org/github.com/zcyc/gf-adapter)
+gf-adapter
 ====
 
 [GF ORM](https://github.com/gogf/gf) adapter for [Casbin](https://github.com/casbin/casbin). 

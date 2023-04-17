@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS %s (
   v4 varchar(256) COLLATE utf8mb4_general_ci DEFAULT NULL,
   v5 varchar(256) COLLATE utf8mb4_general_ci DEFAULT NULL,
   created_at datetime DEFAULT CURRENT_TIMESTAMP,
-  updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 `
@@ -246,7 +245,7 @@ func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules []
 		return
 	}
 
-	err = a.db.Transaction(context.TODO(), func(ctx context.Context, tx *gdb.TX) error {
+	err = a.db.Transaction(context.TODO(), func(ctx context.Context, tx gdb.TX) error {
 		for i := 0; i < int(math.Min(float64(len(oldRules)), float64(len(newRules)))); i++ {
 			if _, err = tx.Model(a.table).Update(a.buildPolicyRule(pType, newRules[i]), a.buildPolicyRule(pType, oldRules[i])); err != nil {
 				return err
