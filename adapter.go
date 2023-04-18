@@ -57,8 +57,6 @@ type (
 		V3    []string
 		V4    []string
 		V5    []string
-		V6    []string
-		V7    []string
 	}
 )
 
@@ -95,6 +93,10 @@ func NewAdapter(ctx context.Context, db gdb.DB, link, tableName string) (adp *Ad
 	return
 }
 
+func (a *Adapter) model() *gdb.Model {
+	return a.db.Model(a.tableName).Safe().Ctx(a.ctx)
+}
+
 // IsFiltered returns true if the loaded policy has been filtered.
 func (a *Adapter) IsFiltered() bool {
 	return a.isFiltered
@@ -118,9 +120,28 @@ func (a *Adapter) truncateTable() error {
 	return err
 }
 
-// model get gdb.
-func (a *Adapter) model() *gdb.Model {
-	return a.db.Model(a.tableName).Safe().Ctx(a.ctx)
+// SavePolicy Saves all policy rules to the storage.
+func (a *Adapter) SavePolicy(model model.Model) (err error) {
+	if err = a.truncateTable(); err != nil {
+		return
+	}
+	var policyRules []policyRule
+	for pType, ast := range model["p"] {
+		for _, rule := range ast.Policy {
+			policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
+		}
+	}
+	for pType, ast := range model["g"] {
+		for _, rule := range ast.Policy {
+			policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
+		}
+	}
+	if count := len(policyRules); count > 0 {
+		if _, err = a.model().Insert(policyRules); err != nil {
+			return
+		}
+	}
+	return
 }
 
 // LoadPolicy loads all policy rules from the storage.
@@ -181,30 +202,6 @@ func (a *Adapter) loadPolicyRule(rule policyRule, model model.Model) {
 		index--
 	}
 	persist.LoadPolicyArray(p[:index+1], model)
-}
-
-// SavePolicy Saves all policy rules to the storage.
-func (a *Adapter) SavePolicy(model model.Model) (err error) {
-	if err = a.truncateTable(); err != nil {
-		return
-	}
-	var policyRules []policyRule
-	for pType, ast := range model["p"] {
-		for _, rule := range ast.Policy {
-			policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
-		}
-	}
-	for pType, ast := range model["g"] {
-		for _, rule := range ast.Policy {
-			policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
-		}
-	}
-	if count := len(policyRules); count > 0 {
-		if _, err = a.model().Insert(policyRules); err != nil {
-			return
-		}
-	}
-	return
 }
 
 // AddPolicy adds a policy rule to the storage.
