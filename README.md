@@ -14,12 +14,14 @@ Based on [GF ORM](https://github.com/gogf/gf), and tested in:
 ## Usage example
 
 ```go
-myDB, _ := gdb.New(gdb.ConfigNode{
+db, err := gdb.New(gdb.ConfigNode{
     Type: "mysql",
     Link: "root:root@tcp(127.0.0.1:3306)/casbin",
 })
-a, _ := NewAdapter(myDB, "", "casbin_rule")
-Enforcer, err = casbin.NewEnforcer("./examples/rbac_model.conf", a)
+if err != nil {
+    panic(err)
+}
+a, _ := NewAdapter(context.Background(), db, "", "casbin_rule")
 ```
 
 ## Notice
