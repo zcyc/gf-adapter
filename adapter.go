@@ -28,24 +28,15 @@ CREATE TABLE IF NOT EXISTS %s (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 `
+	truncateTableSql = `TRUNCATE TABLE %s`
 )
 
 type (
 	Adapter struct {
-		db           gdb.DB
-		tableName    string
-		ctx          context.Context
-		FilteredFlag bool
-	}
-
-	policyColumns struct {
-		PType string
-		V0    string
-		V1    string
-		V2    string
-		V3    string
-		V4    string
-		V5    string
+		db         gdb.DB
+		tableName  string
+		ctx        context.Context
+		isFiltered bool
 	}
 
 	// policy rule entity
@@ -62,7 +53,7 @@ type (
 
 var (
 	errInvalidDatabaseLink = errors.New("invalid database link")
-	policyColumnsName      = policyColumns{
+	policyColumnsName      = policyRule{
 		PType: "p_type",
 		V0:    "v0",
 		V1:    "v1",
@@ -74,8 +65,8 @@ var (
 )
 
 // NewAdapter Create a casbin adapter
-func NewAdapter(db gdb.DB, link, table string) (adp *Adapter, err error) {
-	adp = &Adapter{db: db, tableName: table}
+func NewAdapter(ctx context.Context, db gdb.DB, link, tableName string) (adp *Adapter, err error) {
+	adp = &Adapter{db: db, tableName: tableName, ctx: ctx}
 	if adp.db == nil {
 		config := strings.SplitN(link, ":", 2)
 		if len(config) != 2 {
@@ -93,20 +84,32 @@ func NewAdapter(db gdb.DB, link, table string) (adp *Adapter, err error) {
 	return
 }
 
-func (a *Adapter) model() *gdb.Model {
-	return a.db.Model(a.tableName).Safe().Ctx(context.TODO())
+// IsFiltered returns true if the loaded policy has been filtered.
+func (a *Adapter) IsFiltered() bool {
+	return a.isFiltered
 }
 
 // create a policy tableName when it's not exists.
 func (a *Adapter) createTable() (err error) {
-	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(createTableSql, a.tableName))
+	_, err = a.db.Exec(a.ctx, fmt.Sprintf(createTableSql, a.tableName))
 	return
 }
 
 // drop policy tableName from the storage.
 func (a *Adapter) dropTable() (err error) {
-	_, err = a.db.Exec(context.TODO(), fmt.Sprintf(dropTableSql, a.tableName))
+	_, err = a.db.Exec(a.ctx, fmt.Sprintf(dropTableSql, a.tableName))
 	return
+}
+
+// truncate policy tableName from the storage.
+func (a *Adapter) truncateTable() error {
+	_, err := a.db.Exec(a.ctx, fmt.Sprintf(truncateTableSql, a.tableName))
+	return err
+}
+
+// model get gdb.
+func (a *Adapter) model() *gdb.Model {
+	return a.db.Model(a.tableName).Safe().Ctx(a.ctx)
 }
 
 // LoadPolicy loads all policy rules from the storage.
@@ -121,15 +124,60 @@ func (a *Adapter) LoadPolicy(model model.Model) (err error) {
 	return
 }
 
+// LoadFilteredPolicy loads only policy rules that match the filter.
+func (a *Adapter) LoadFilteredPolicy(model model.Model, filter interface{}) error {
+	var rules []policyRule
+	filterRule, ok := filter.(policyRule)
+	if !ok {
+		return errors.New("invalid filter type")
+	}
+	db := a.model()
+	if filterRule.PType != "" {
+		db = db.Where(policyColumnsName.PType, filterRule.PType)
+	}
+	if filterRule.V0 != "" {
+		db = db.Where(policyColumnsName.V0, filterRule.V0)
+	}
+	if filterRule.V1 != "" {
+		db = db.Where(policyColumnsName.V1, filterRule.V1)
+	}
+	if filterRule.V2 != "" {
+		db = db.Where(policyColumnsName.V2, filterRule.V2)
+	}
+	if filterRule.V3 != "" {
+		db = db.Where(policyColumnsName.V3, filterRule.V3)
+	}
+	if filterRule.V4 != "" {
+		db = db.Where(policyColumnsName.V4, filterRule.V4)
+	}
+	if filterRule.V5 != "" {
+		db = db.Where(policyColumnsName.V5, filterRule.V5)
+	}
+	if err := db.Scan(&rules); err != nil {
+		return err
+	}
+	for _, rule := range rules {
+		a.loadPolicyRule(rule, model)
+	}
+	a.isFiltered = true
+	return nil
+}
+
+func (a *Adapter) loadPolicyRule(rule policyRule, model model.Model) {
+	var p = []string{rule.PType, rule.V0, rule.V1, rule.V2, rule.V3, rule.V4, rule.V5}
+	index := len(p) - 1
+	for p[index] == "" {
+		index--
+	}
+	persist.LoadPolicyArray(p[:index+1], model)
+}
+
 // SavePolicy Saves all policy rules to the storage.
 func (a *Adapter) SavePolicy(model model.Model) (err error) {
-	if err = a.dropTable(); err != nil {
+	if err = a.truncateTable(); err != nil {
 		return
 	}
-	if err = a.createTable(); err != nil {
-		return
-	}
-	policyRules := make([]policyRule, 0)
+	var policyRules []policyRule
 	for pType, ast := range model["p"] {
 		for _, rule := range ast.Policy {
 			policyRules = append(policyRules, a.buildPolicyRule(pType, rule))
@@ -169,26 +217,8 @@ func (a *Adapter) AddPolicies(sec string, pType string, rules [][]string) (err e
 
 // RemovePolicy removes a policy rule from the storage.
 func (a *Adapter) RemovePolicy(sec string, pType string, rule []string) (err error) {
-	db := a.model()
-	db = db.Where(policyColumnsName.PType, pType)
-	for index := 0; index < len(rule); index++ {
-		db = db.Where(fmt.Sprintf("v%d", index), rule[index])
-	}
-	_, err = db.Delete()
+	_, err = a.model().Delete(a.buildPolicyRule(pType, rule))
 	return err
-}
-
-// RemoveFilteredPolicy removes policy rules that match the filter from the storage.
-func (a *Adapter) RemoveFilteredPolicy(sec string, pType string, fieldIndex int, fieldValues ...string) (err error) {
-	db := a.model()
-	db = db.Where(policyColumnsName.PType, pType)
-	for index := 0; index <= 5; index++ {
-		if fieldIndex <= index && index < fieldIndex+len(fieldValues) {
-			db = db.Where(fmt.Sprintf("v%d", index), fieldValues[index-fieldIndex])
-		}
-	}
-	_, err = db.Delete()
-	return
 }
 
 // RemovePolicies removes policy rules from the storage (implements the persist.BatchAdapter interface).
@@ -207,6 +237,18 @@ func (a *Adapter) RemovePolicies(sec string, pType string, rules [][]string) (er
 	return
 }
 
+// RemoveFilteredPolicy removes policy rules that match the filter from the storage.
+func (a *Adapter) RemoveFilteredPolicy(sec string, pType string, fieldIndex int, fieldValues ...string) (err error) {
+	db := a.model().Where(policyColumnsName.PType, pType)
+	for index := 0; index <= 5; index++ {
+		if fieldIndex <= index && index < fieldIndex+len(fieldValues) {
+			db = db.Where(fmt.Sprintf("v%d", index), fieldValues[index-fieldIndex])
+		}
+	}
+	_, err = db.Delete()
+	return
+}
+
 // UpdatePolicy updates a policy rule from storage.
 func (a *Adapter) UpdatePolicy(sec string, pType string, oldRule, newRule []string) (err error) {
 	_, err = a.model().Update(a.buildPolicyRule(pType, newRule), a.buildPolicyRule(pType, oldRule))
@@ -218,7 +260,7 @@ func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules []
 	if len(oldRules) == 0 || len(newRules) == 0 {
 		return
 	}
-	err = a.db.Transaction(context.TODO(), func(ctx context.Context, tx gdb.TX) error {
+	err = a.db.Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
 		for i := 0; i < int(math.Min(float64(len(oldRules)), float64(len(newRules)))); i++ {
 			if _, err = tx.Model(a.tableName).Update(a.buildPolicyRule(pType, newRules[i]), a.buildPolicyRule(pType, oldRules[i])); err != nil {
 				return err
@@ -229,14 +271,120 @@ func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules []
 	return
 }
 
-// 加载策略规则
-func (a *Adapter) loadPolicyRule(rule policyRule, model model.Model) {
-	var p = []string{rule.PType, rule.V0, rule.V1, rule.V2, rule.V3, rule.V4, rule.V5}
-	index := len(p) - 1
-	for p[index] == "" {
-		index--
+func (a *Adapter) UpdateFilteredPolicies(sec string, pType string, newPolicies [][]string, fieldIndex int, fieldValues ...string) ([][]string, error) {
+	rule := &policyRule{}
+	rule.PType = pType
+	if fieldIndex <= 0 && 0 < fieldIndex+len(fieldValues) {
+		rule.V0 = fieldValues[0-fieldIndex]
 	}
-	persist.LoadPolicyArray(p[:index+1], model)
+	if fieldIndex <= 1 && 1 < fieldIndex+len(fieldValues) {
+		rule.V1 = fieldValues[1-fieldIndex]
+	}
+	if fieldIndex <= 2 && 2 < fieldIndex+len(fieldValues) {
+		rule.V2 = fieldValues[2-fieldIndex]
+	}
+	if fieldIndex <= 3 && 3 < fieldIndex+len(fieldValues) {
+		rule.V3 = fieldValues[3-fieldIndex]
+	}
+	if fieldIndex <= 4 && 4 < fieldIndex+len(fieldValues) {
+		rule.V4 = fieldValues[4-fieldIndex]
+	}
+	if fieldIndex <= 5 && 5 < fieldIndex+len(fieldValues) {
+		rule.V5 = fieldValues[5-fieldIndex]
+	}
+
+	newRules := make([]policyRule, 0, len(newPolicies))
+	oldRules := make([]policyRule, 0)
+	for _, newRule := range newPolicies {
+		newRules = append(newRules, a.buildPolicyRule(pType, newRule))
+	}
+	tx, err := a.db.Begin(a.ctx)
+	if err != nil {
+		panic(err)
+	}
+
+	for i := range newRules {
+		str, args := rule.toQueryString()
+		if err = tx.Model(a.tableName).Where(str, args...).Scan(&oldRules); err != nil {
+			err = tx.Rollback()
+			return nil, err
+		}
+		if _, err = tx.Model(a.tableName).Where(str, args...).Delete([]policyRule{}); err != nil {
+			err = tx.Rollback()
+			return nil, err
+		}
+		if _, err = tx.Model(a.tableName).Data(&newRules[i]).Insert(); err != nil {
+			err = tx.Rollback()
+			return nil, err
+		}
+	}
+
+	oldPolicies := make([][]string, 0)
+	for _, v := range oldRules {
+		oldPolicy := v.toStringSlice()
+		oldPolicies = append(oldPolicies, oldPolicy)
+	}
+	err = tx.Commit()
+	if err != nil {
+		return nil, err
+	}
+	return oldPolicies, err
+}
+
+func (c *policyRule) toQueryString() (interface{}, []interface{}) {
+	queryArgs := []interface{}{c.PType}
+	queryStr := "p_type = ?"
+	if c.V0 != "" {
+		queryStr += " and v0 = ?"
+		queryArgs = append(queryArgs, c.V0)
+	}
+	if c.V1 != "" {
+		queryStr += " and v1 = ?"
+		queryArgs = append(queryArgs, c.V1)
+	}
+	if c.V2 != "" {
+		queryStr += " and v2 = ?"
+		queryArgs = append(queryArgs, c.V2)
+	}
+	if c.V3 != "" {
+		queryStr += " and v3 = ?"
+		queryArgs = append(queryArgs, c.V3)
+	}
+	if c.V4 != "" {
+		queryStr += " and v4 = ?"
+		queryArgs = append(queryArgs, c.V4)
+	}
+	if c.V5 != "" {
+		queryStr += " and v5 = ?"
+		queryArgs = append(queryArgs, c.V5)
+	}
+	return queryStr, queryArgs
+}
+
+func (c *policyRule) toStringSlice() []string {
+	var policy []string
+	if c.PType != "" {
+		policy = append(policy, c.PType)
+	}
+	if c.V0 != "" {
+		policy = append(policy, c.V0)
+	}
+	if c.V1 != "" {
+		policy = append(policy, c.V1)
+	}
+	if c.V2 != "" {
+		policy = append(policy, c.V2)
+	}
+	if c.V3 != "" {
+		policy = append(policy, c.V3)
+	}
+	if c.V4 != "" {
+		policy = append(policy, c.V4)
+	}
+	if c.V5 != "" {
+		policy = append(policy, c.V5)
+	}
+	return policy
 }
 
 // 构建策略规则
