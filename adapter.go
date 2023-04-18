@@ -32,8 +32,10 @@ CREATE TABLE IF NOT EXISTS %s (
 
 type (
 	Adapter struct {
-		db        gdb.DB
-		tableName string
+		db           gdb.DB
+		tableName    string
+		ctx          context.Context
+		FilteredFlag bool
 	}
 
 	policyColumns struct {
@@ -73,7 +75,7 @@ var (
 
 // NewAdapter Create a casbin adapter
 func NewAdapter(db gdb.DB, link, table string) (adp *Adapter, err error) {
-	adp = &Adapter{db, table}
+	adp = &Adapter{db: db, tableName: table}
 	if adp.db == nil {
 		config := strings.SplitN(link, ":", 2)
 		if len(config) != 2 {
@@ -229,26 +231,12 @@ func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules []
 
 // 加载策略规则
 func (a *Adapter) loadPolicyRule(rule policyRule, model model.Model) {
-	ruleText := rule.PType
-	if rule.V0 != "" {
-		ruleText += ", " + rule.V0
+	var p = []string{rule.PType, rule.V0, rule.V1, rule.V2, rule.V3, rule.V4, rule.V5}
+	index := len(p) - 1
+	for p[index] == "" {
+		index--
 	}
-	if rule.V1 != "" {
-		ruleText += ", " + rule.V1
-	}
-	if rule.V2 != "" {
-		ruleText += ", " + rule.V2
-	}
-	if rule.V3 != "" {
-		ruleText += ", " + rule.V3
-	}
-	if rule.V4 != "" {
-		ruleText += ", " + rule.V4
-	}
-	if rule.V5 != "" {
-		ruleText += ", " + rule.V5
-	}
-	persist.LoadPolicyLine(ruleText, model)
+	persist.LoadPolicyArray(p[:index+1], model)
 }
 
 // 构建策略规则
