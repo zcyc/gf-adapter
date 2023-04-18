@@ -62,6 +62,7 @@ func initPolicy(t *testing.T, a *Adapter) {
 }
 
 func testSaveLoad(t *testing.T, a *Adapter) {
+	t.Log("testSaveLoad start")
 	// Initialize some policy in DB.
 	initPolicy(t, a)
 	// Note: you don't need to look at the above code
@@ -75,6 +76,7 @@ func testSaveLoad(t *testing.T, a *Adapter) {
 }
 
 func testAutoSave(t *testing.T, a *Adapter) {
+	t.Log("testAutoSave start")
 	// Initialize some policy in DB.
 	initPolicy(t, a)
 	// Note: you don't need to look at the above code
@@ -137,6 +139,7 @@ func testAutoSave(t *testing.T, a *Adapter) {
 }
 
 func testFilteredPolicy(t *testing.T, a *Adapter) {
+	t.Log("testFilteredPolicy start")
 	// Initialize some policy in DB.
 	initPolicy(t, a)
 	// Note: you don't need to look at the above code
@@ -178,6 +181,7 @@ func testFilteredPolicy(t *testing.T, a *Adapter) {
 }
 
 func testRemovePolicies(t *testing.T, a *Adapter) {
+	t.Log("testRemovePolicies start")
 	// Initialize some policy in DB.
 	initPolicy(t, a)
 	// Note: you don't need to look at the above code
@@ -219,6 +223,7 @@ func testRemovePolicies(t *testing.T, a *Adapter) {
 }
 
 func testAddPolicies(t *testing.T, a *Adapter) {
+	t.Log("testAddPolicies start")
 	// Initialize some policy in DB.
 	initPolicy(t, a)
 	// Note: you don't need to look at the above code
@@ -250,6 +255,7 @@ func testAddPolicies(t *testing.T, a *Adapter) {
 }
 
 func testUpdatePolicies(t *testing.T, a *Adapter) {
+	t.Log("testUpdatePolicies start")
 	// Initialize some policy in DB.
 	initPolicy(t, a)
 	// Note: you don't need to look at the above code
@@ -282,6 +288,7 @@ func testUpdatePolicies(t *testing.T, a *Adapter) {
 }
 
 func testUpdateFilteredPolicies(t *testing.T, a *Adapter) {
+	t.Log("testUpdateFilteredPolicies start")
 	// Initialize some policy in DB.
 	initPolicy(t, a)
 	// Note: you don't need to look at the above code
@@ -302,6 +309,7 @@ func testUpdateFilteredPolicies(t *testing.T, a *Adapter) {
 }
 
 func testGetPolicyWithoutOrder(t *testing.T, e *casbin.Enforcer, res [][]string) {
+	t.Log("testGetPolicyWithoutOrder start")
 	myRes := e.GetPolicy()
 	log.Print("Policy: ", myRes)
 
@@ -350,6 +358,7 @@ func TestAdapters(t *testing.T) {
 		Type: "mysql",
 		Link: "root:root@tcp(127.0.0.1:3306)/casbin",
 	})
+	db.SetDebug(true)
 	if err != nil {
 		panic(err)
 	}
