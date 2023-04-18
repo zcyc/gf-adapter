@@ -39,7 +39,6 @@ type (
 		isFiltered bool
 	}
 
-	// policy rule entity
 	policyRule struct {
 		PType string `orm:"p_type" json:"p_type"`
 		V0    string `orm:"v0" json:"v0"`
@@ -48,6 +47,18 @@ type (
 		V3    string `orm:"v3" json:"v3"`
 		V4    string `orm:"v4" json:"v4"`
 		V5    string `orm:"v5" json:"v5"`
+	}
+
+	Filter struct {
+		PType []string
+		V0    []string
+		V1    []string
+		V2    []string
+		V3    []string
+		V4    []string
+		V5    []string
+		V6    []string
+		V7    []string
 	}
 )
 
@@ -127,31 +138,31 @@ func (a *Adapter) LoadPolicy(model model.Model) (err error) {
 // LoadFilteredPolicy loads only policy rules that match the filter.
 func (a *Adapter) LoadFilteredPolicy(model model.Model, filter interface{}) error {
 	var rules []policyRule
-	filterRule, ok := filter.(policyRule)
+	filterRule, ok := filter.(Filter)
 	if !ok {
 		return errors.New("invalid filter type")
 	}
 	db := a.model()
-	if filterRule.PType != "" {
-		db = db.Where(policyColumnsName.PType, filterRule.PType)
+	if len(filterRule.PType) > 0 {
+		db = db.WhereIn(policyColumnsName.PType, filterRule.PType)
 	}
-	if filterRule.V0 != "" {
-		db = db.Where(policyColumnsName.V0, filterRule.V0)
+	if len(filterRule.V0) > 0 {
+		db = db.WhereIn(policyColumnsName.V0, filterRule.V0)
 	}
-	if filterRule.V1 != "" {
-		db = db.Where(policyColumnsName.V1, filterRule.V1)
+	if len(filterRule.V1) > 0 {
+		db = db.WhereIn(policyColumnsName.V1, filterRule.V1)
 	}
-	if filterRule.V2 != "" {
-		db = db.Where(policyColumnsName.V2, filterRule.V2)
+	if len(filterRule.V2) > 0 {
+		db = db.WhereIn(policyColumnsName.V2, filterRule.V2)
 	}
-	if filterRule.V3 != "" {
-		db = db.Where(policyColumnsName.V3, filterRule.V3)
+	if len(filterRule.V3) > 0 {
+		db = db.WhereIn(policyColumnsName.V3, filterRule.V3)
 	}
-	if filterRule.V4 != "" {
-		db = db.Where(policyColumnsName.V4, filterRule.V4)
+	if len(filterRule.V4) > 0 {
+		db = db.WhereIn(policyColumnsName.V4, filterRule.V4)
 	}
-	if filterRule.V5 != "" {
-		db = db.Where(policyColumnsName.V5, filterRule.V5)
+	if len(filterRule.V5) > 0 {
+		db = db.WhereIn(policyColumnsName.V5, filterRule.V5)
 	}
 	if err := db.Scan(&rules); err != nil {
 		return err
