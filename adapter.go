@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
+	"github.com/gogf/gf/frame/g"
 	"github.com/gogf/gf/v2/database/gdb"
-	"math"
-	"strings"
 )
 
 const (
@@ -33,10 +34,11 @@ CREATE TABLE IF NOT EXISTS %s (
 
 type (
 	Adapter struct {
-		db         gdb.DB
-		tableName  string
-		ctx        context.Context
-		isFiltered bool
+		ctx         context.Context
+		dbGroupName string
+		tableName   string
+		db          gdb.DB
+		isFiltered  bool
 	}
 
 	Rule struct {
@@ -73,23 +75,22 @@ var (
 )
 
 // NewAdapter Create a casbin adapter
-func NewAdapter(ctx context.Context, db gdb.DB, link, tableName string) (adp *Adapter, err error) {
-	adp = &Adapter{db: db, tableName: tableName, ctx: ctx}
-	if adp.db == nil {
-		config := strings.SplitN(link, ":", 2)
-		if len(config) != 2 {
-			err = errors.New("invalid database link")
-			return
-		}
-		if adp.db, err = gdb.New(gdb.ConfigNode{Type: config[0], Link: config[1]}); err != nil {
-			return
-		}
-	}
+func NewAdapter(ctx context.Context, dbGroupName, tableName string) (adp *Adapter, err error) {
+	adp = &Adapter{ctx: ctx, dbGroupName: dbGroupName, tableName: tableName}
 	if adp.tableName == "" {
 		adp.tableName = defaultTableName
 	}
-	err = adp.createTable()
+	err = adp.open()
+	if err != nil {
+		return nil, err
+	}
 	return
+}
+
+func (a *Adapter) open() error {
+	a.db = g.DB(a.dbGroupName)
+	a.tableName = fmt.Sprintf("%s%s", a.db.GetPrefix(), a.tableName)
+	return a.createTable()
 }
 
 func (a *Adapter) model() *gdb.Model {

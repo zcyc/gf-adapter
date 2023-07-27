@@ -1,9 +1,9 @@
-gf-adapter
-====
+# gf-adapter
 
-[GF ORM](https://github.com/gogf/gf) adapter for [Casbin](https://github.com/casbin/casbin). 
+[GF ORM](https://github.com/gogf/gf) adapter for [Casbin](https://github.com/casbin/casbin).
 
 Based on [GF ORM](https://github.com/gogf/gf), and tested in:
+
 - MySQL
 
 ## Installation
@@ -14,17 +14,11 @@ Based on [GF ORM](https://github.com/gogf/gf), and tested in:
 ## Usage example
 
 ```go
-db, err := gdb.New(gdb.ConfigNode{
-    Type: "mysql",
-    Link: "root:root@tcp(127.0.0.1:3306)/casbin",
-})
-if err != nil {
-    panic(err)
-}
-a, _ := NewAdapter(context.Background(), db, "", "casbin_rule")
+a, _ := NewAdapter(context.Background(), gdb.DefaultGroupName)
 ```
 
 ## Notice
+
 you should create the database on your own.
 
 ## Getting Help
