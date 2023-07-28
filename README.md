@@ -14,7 +14,7 @@ Based on [GF ORM](https://github.com/gogf/gf), and tested in:
 ## Usage example
 
 ```go
-a, _ := NewAdapter(context.Background(), gdb.DefaultGroupName)
+a, _ := NewAdapter(context.Background(), gdb.DefaultGroupName, "", nil)
 ```
 
 ## Notice
