@@ -8,8 +8,8 @@ import (
 
 	"github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
-	"github.com/gogf/gf/frame/g"
 	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
 )
 
 const (
@@ -75,8 +75,8 @@ var (
 )
 
 // NewAdapter Create a casbin adapter
-func NewAdapter(ctx context.Context, dbGroupName, tableName string) (adp *Adapter, err error) {
-	adp = &Adapter{ctx: ctx, dbGroupName: dbGroupName, tableName: tableName}
+func NewAdapter(ctx context.Context, dbGroupName, tableName string, db gdb.DB) (adp *Adapter, err error) {
+	adp = &Adapter{ctx: ctx, dbGroupName: dbGroupName, tableName: tableName, db: db}
 	if adp.tableName == "" {
 		adp.tableName = defaultTableName
 	}
@@ -88,7 +88,9 @@ func NewAdapter(ctx context.Context, dbGroupName, tableName string) (adp *Adapte
 }
 
 func (a *Adapter) open() error {
-	a.db = g.DB(a.dbGroupName)
+	if a.db == nil {
+		a.db = g.DB(a.dbGroupName)
+	}
 	a.tableName = fmt.Sprintf("%s%s", a.db.GetPrefix(), a.tableName)
 	return a.createTable()
 }

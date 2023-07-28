@@ -2,13 +2,14 @@ package adapter
 
 import (
 	"context"
-	"github.com/casbin/casbin/v2/util"
-	"github.com/gogf/gf/v2/database/gdb"
 	"log"
 	"strings"
 	"testing"
 
 	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v2/util"
+	"github.com/gogf/gf/v2/database/gdb"
+
 	_ "github.com/gogf/gf/contrib/drivers/clickhouse/v2"
 	_ "github.com/gogf/gf/contrib/drivers/mssql/v2"
 	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
@@ -362,7 +363,7 @@ func TestAdapters(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	a, _ := NewAdapter(context.Background(), db, "", "casbin_rule")
+	a, _ := NewAdapter(context.Background(), "", "", db)
 	testSaveLoad(t, a)
 	testAutoSave(t, a)
 	testFilteredPolicy(t, a)
