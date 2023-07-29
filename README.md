@@ -2,7 +2,7 @@
 
 [GF ORM](https://github.com/gogf/gf) adapter for [Casbin](https://github.com/casbin/casbin).
 
-tested in:
+Tested in:
 
 - MySQL
 
