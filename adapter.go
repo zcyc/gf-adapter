@@ -43,6 +43,11 @@ type (
 		tableName   string
 		db          gdb.DB
 		isFiltered  bool
+		batchSize   int
+	}
+
+	AdapterOption struct {
+		BatchSize int
 	}
 
 	Rule struct {
@@ -79,23 +84,32 @@ var (
 )
 
 // NewAdapter creates a new Casbin adapter for GoFrame
-func NewAdapter(ctx context.Context, dbGroupName, tableName string, db gdb.DB) (adp *Adapter, err error) {
+func NewAdapter(ctx context.Context, dbGroupName, tableName string, db gdb.DB, opts ...AdapterOption) (*Adapter, error) {
 	if ctx == nil {
 		return nil, errors.New("context cannot be nil")
 	}
 
-	adp = &Adapter{
+	// Check for canceled context
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("invalid context: %w", err)
+	}
+
+	adp := &Adapter{
 		ctx:         ctx,
 		dbGroupName: dbGroupName,
 		tableName:   tableName,
 		db:          db,
+		batchSize:   defaultBatchSize,
 	}
 
-	if adp.tableName == "" {
-		adp.tableName = defaultTableName
+	// Apply options
+	for _, opt := range opts {
+		if opt.BatchSize > 0 {
+			adp.batchSize = opt.BatchSize
+		}
 	}
 
-	if err = adp.open(); err != nil {
+	if err := adp.open(); err != nil {
 		return nil, fmt.Errorf("failed to open adapter: %w", err)
 	}
 
@@ -111,6 +125,10 @@ func (a *Adapter) open() error {
 		if a.db == nil {
 			return fmt.Errorf("failed to get database instance for group: %s", a.dbGroupName)
 		}
+	}
+
+	if a.tableName == "" {
+		a.tableName = defaultTableName
 	}
 
 	// Get database prefix and validate connection
@@ -137,19 +155,6 @@ func (a *Adapter) createTable() error {
 	_, err := a.db.Exec(a.ctx, fmt.Sprintf(createTableSql, a.tableName))
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
-	}
-	return nil
-}
-
-// drop policy table from the storage.
-func (a *Adapter) dropTable() error {
-	if a.tableName == "" {
-		return errors.New("table name cannot be empty")
-	}
-
-	_, err := a.db.Exec(a.ctx, fmt.Sprintf(dropTableSql, a.tableName))
-	if err != nil {
-		return fmt.Errorf("failed to drop table: %w", err)
 	}
 	return nil
 }
