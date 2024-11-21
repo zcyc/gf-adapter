@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/casbin/casbin/v2/model"
-	"github.com/casbin/casbin/v2/persist"
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 )
@@ -74,24 +72,44 @@ var (
 	}
 )
 
-// NewAdapter Create a casbin adapter
+// NewAdapter creates a new Casbin adapter for GoFrame
 func NewAdapter(ctx context.Context, dbGroupName, tableName string, db gdb.DB) (adp *Adapter, err error) {
-	adp = &Adapter{ctx: ctx, dbGroupName: dbGroupName, tableName: tableName, db: db}
+	if ctx == nil {
+		return nil, errors.New("context cannot be nil")
+	}
+
+	adp = &Adapter{
+		ctx:         ctx,
+		dbGroupName: dbGroupName,
+		tableName:   tableName,
+		db:          db,
+	}
+
 	if adp.tableName == "" {
 		adp.tableName = defaultTableName
 	}
-	err = adp.open()
-	if err != nil {
-		return nil, err
+
+	if err = adp.open(); err != nil {
+		return nil, fmt.Errorf("failed to open adapter: %w", err)
 	}
-	return
+
+	return adp, nil
 }
 
 func (a *Adapter) open() error {
 	if a.db == nil {
+		if a.dbGroupName == "" {
+			return errors.New("database group name cannot be empty when db is nil")
+		}
 		a.db = g.DB(a.dbGroupName)
+		if a.db == nil {
+			return fmt.Errorf("failed to get database instance for group: %s", a.dbGroupName)
+		}
 	}
-	a.tableName = fmt.Sprintf("%s%s", a.db.GetPrefix(), a.tableName)
+
+	// Get database prefix and validate connection
+	prefix := a.db.GetPrefix()
+	a.tableName = fmt.Sprintf("%s%s", prefix, a.tableName)
 	return a.createTable()
 }
 
@@ -104,30 +122,58 @@ func (a *Adapter) IsFiltered() bool {
 	return a.isFiltered
 }
 
-// create a policy tableName when it's not exists.
-func (a *Adapter) createTable() (err error) {
-	_, err = a.db.Exec(a.ctx, fmt.Sprintf(createTableSql, a.tableName))
-	return
-}
-
-// drop policy tableName from the storage.
-func (a *Adapter) dropTable() (err error) {
-	_, err = a.db.Exec(a.ctx, fmt.Sprintf(dropTableSql, a.tableName))
-	return
-}
-
-// truncate policy tableName from the storage.
-func (a *Adapter) truncateTable() error {
-	_, err := a.db.Exec(a.ctx, fmt.Sprintf(truncateTableSql, a.tableName))
-	return err
-}
-
-// SavePolicy Saves all policy rules to the storage.
-func (a *Adapter) SavePolicy(model model.Model) (err error) {
-	if err = a.truncateTable(); err != nil {
-		return
+// create a policy table when it doesn't exist.
+func (a *Adapter) createTable() error {
+	if a.tableName == "" {
+		return errors.New("table name cannot be empty")
 	}
+
+	_, err := a.db.Exec(a.ctx, fmt.Sprintf(createTableSql, a.tableName))
+	if err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+	return nil
+}
+
+// drop policy table from the storage.
+func (a *Adapter) dropTable() error {
+	if a.tableName == "" {
+		return errors.New("table name cannot be empty")
+	}
+
+	_, err := a.db.Exec(a.ctx, fmt.Sprintf(dropTableSql, a.tableName))
+	if err != nil {
+		return fmt.Errorf("failed to drop table: %w", err)
+	}
+	return nil
+}
+
+// truncate policy table in the storage.
+func (a *Adapter) truncateTable() error {
+	if a.tableName == "" {
+		return errors.New("table name cannot be empty")
+	}
+
+	_, err := a.db.Exec(a.ctx, fmt.Sprintf(truncateTableSql, a.tableName))
+	if err != nil {
+		return fmt.Errorf("failed to truncate table: %w", err)
+	}
+	return nil
+}
+
+// SavePolicy saves all policy rules to the storage.
+func (a *Adapter) SavePolicy(model model.Model) error {
+	if model == nil {
+		return errors.New("model cannot be nil")
+	}
+
+	if err := a.truncateTable(); err != nil {
+		return fmt.Errorf("failed to truncate table: %w", err)
+	}
+
 	var rules []Rule
+
+	// Convert policy rules to database records
 	for pType, ast := range model["p"] {
 		for _, rule := range ast.Policy {
 			rules = append(rules, a.buildRule(pType, rule))
@@ -138,269 +184,168 @@ func (a *Adapter) SavePolicy(model model.Model) (err error) {
 			rules = append(rules, a.buildRule(pType, rule))
 		}
 	}
-	if count := len(rules); count > 0 {
-		if _, err = a.model().Insert(rules); err != nil {
-			return
-		}
-	}
-	return
-}
 
-// LoadPolicy loads all policy rules from the storage.
-func (a *Adapter) LoadPolicy(model model.Model) (err error) {
-	var rules []Rule
-	if err = a.model().Scan(&rules); err != nil {
-		return
-	}
-	for _, rule := range rules {
-		a.loadPolicyRule(rule, model)
-	}
-	return
-}
-
-// LoadFilteredPolicy loads only policy rules that match the filter.
-func (a *Adapter) LoadFilteredPolicy(model model.Model, filter interface{}) error {
-	var rules []Rule
-	filterRule, ok := filter.(Filter)
-	if !ok {
-		return errors.New("invalid filter type")
-	}
-	db := a.model()
-	if len(filterRule.PType) > 0 {
-		db = db.WhereIn(Columns.PType, filterRule.PType)
-	}
-	if len(filterRule.V0) > 0 {
-		db = db.WhereIn(Columns.V0, filterRule.V0)
-	}
-	if len(filterRule.V1) > 0 {
-		db = db.WhereIn(Columns.V1, filterRule.V1)
-	}
-	if len(filterRule.V2) > 0 {
-		db = db.WhereIn(Columns.V2, filterRule.V2)
-	}
-	if len(filterRule.V3) > 0 {
-		db = db.WhereIn(Columns.V3, filterRule.V3)
-	}
-	if len(filterRule.V4) > 0 {
-		db = db.WhereIn(Columns.V4, filterRule.V4)
-	}
-	if len(filterRule.V5) > 0 {
-		db = db.WhereIn(Columns.V5, filterRule.V5)
-	}
-	if err := db.Scan(&rules); err != nil {
-		return err
-	}
-	for _, rule := range rules {
-		a.loadPolicyRule(rule, model)
-	}
-	a.isFiltered = true
-	return nil
-}
-
-// load Rule from slice.
-func (a *Adapter) loadPolicyRule(rule Rule, model model.Model) {
-	var p = []string{rule.PType, rule.V0, rule.V1, rule.V2, rule.V3, rule.V4, rule.V5}
-	index := len(p) - 1
-	for p[index] == "" {
-		index--
-	}
-	persist.LoadPolicyArray(p[:index+1], model)
-}
-
-// AddPolicy adds a policy rule to the storage.
-func (a *Adapter) AddPolicy(sec string, pType string, rule []string) (err error) {
-	_, err = a.model().Insert(a.buildRule(pType, rule))
-	return
-}
-
-// AddPolicies adds policy rules to the storage.
-func (a *Adapter) AddPolicies(sec string, pType string, rules [][]string) (err error) {
 	if len(rules) == 0 {
-		return
+		return nil
 	}
-	policyRules := make([]Rule, 0, len(rules))
-	for _, rule := range rules {
-		policyRules = append(policyRules, a.buildRule(pType, rule))
-	}
-	_, err = a.model().Insert(policyRules)
-	return
-}
 
-// RemovePolicy removes a policy rule from the storage.
-func (a *Adapter) RemovePolicy(sec string, pType string, rule []string) (err error) {
-	_, err = a.model().Delete(a.buildRule(pType, rule))
-	return err
-}
-
-// RemovePolicies removes policy rules from the storage (implements the persist.BatchAdapter interface).
-func (a *Adapter) RemovePolicies(sec string, pType string, rules [][]string) (err error) {
-	db := a.model()
-	for _, rule := range rules {
-		where := map[string]interface{}{Columns.PType: pType}
-		for i := 0; i <= 5; i++ {
-			if len(rule) > i {
-				where[fmt.Sprintf("v%d", i)] = rule[i]
+	// Use transaction for better reliability
+	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
+		// Insert rules in batches for better performance
+		const batchSize = 1000
+		for i := 0; i < len(rules); i += batchSize {
+			end := i + batchSize
+			if end > len(rules) {
+				end = len(rules)
 			}
-		}
-		db = db.WhereOr(where)
-	}
-	_, err = db.Delete()
-	return
-}
-
-// RemoveFilteredPolicy removes policy rules that match the filter from the storage.
-func (a *Adapter) RemoveFilteredPolicy(sec string, pType string, fieldIndex int, fieldValues ...string) (err error) {
-	db := a.model().Where(Columns.PType, pType)
-	for index := 0; index <= 5; index++ {
-		if fieldIndex <= index && index < fieldIndex+len(fieldValues) {
-			db = db.Where(fmt.Sprintf("v%d", index), fieldValues[index-fieldIndex])
-		}
-	}
-	_, err = db.Delete()
-	return
-}
-
-// UpdatePolicy updates a policy rule from storage.
-func (a *Adapter) UpdatePolicy(sec string, pType string, oldRule, newRule []string) (err error) {
-	_, err = a.model().Update(a.buildRule(pType, newRule), a.buildRule(pType, oldRule))
-	return
-}
-
-// UpdatePolicies updates some policy rules to storage, like db, redis.
-func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules [][]string) (err error) {
-	if len(oldRules) == 0 || len(newRules) == 0 {
-		return
-	}
-	err = a.db.Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
-		for i := 0; i < int(math.Min(float64(len(oldRules)), float64(len(newRules)))); i++ {
-			if _, err = tx.Model(a.tableName).Update(a.buildRule(pType, newRules[i]), a.buildRule(pType, oldRules[i])); err != nil {
-				return err
+			batch := rules[i:end]
+			if _, err := tx.Model(a.tableName).Ctx(ctx).Insert(batch); err != nil {
+				return fmt.Errorf("failed to insert rules batch: %w", err)
 			}
 		}
 		return nil
 	})
-	return
+
+	return err
 }
 
-// UpdateFilteredPolicies deletes old rules and adds new rules.
-func (a *Adapter) UpdateFilteredPolicies(sec string, pType string, newPolicies [][]string, fieldIndex int, fieldValues ...string) ([][]string, error) {
-	rule := &Rule{}
-	rule.PType = pType
-	if fieldIndex <= 0 && 0 < fieldIndex+len(fieldValues) {
-		rule.V0 = fieldValues[0-fieldIndex]
+// LoadPolicy loads all policy rules from the storage.
+func (a *Adapter) LoadPolicy(model model.Model) error {
+	if model == nil {
+		return errors.New("model cannot be nil")
 	}
-	if fieldIndex <= 1 && 1 < fieldIndex+len(fieldValues) {
-		rule.V1 = fieldValues[1-fieldIndex]
-	}
-	if fieldIndex <= 2 && 2 < fieldIndex+len(fieldValues) {
-		rule.V2 = fieldValues[2-fieldIndex]
-	}
-	if fieldIndex <= 3 && 3 < fieldIndex+len(fieldValues) {
-		rule.V3 = fieldValues[3-fieldIndex]
-	}
-	if fieldIndex <= 4 && 4 < fieldIndex+len(fieldValues) {
-		rule.V4 = fieldValues[4-fieldIndex]
-	}
-	if fieldIndex <= 5 && 5 < fieldIndex+len(fieldValues) {
-		rule.V5 = fieldValues[5-fieldIndex]
-	}
-	newRules := make([]Rule, 0, len(newPolicies))
-	oldRules := make([]Rule, 0)
-	for _, newRule := range newPolicies {
-		newRules = append(newRules, a.buildRule(pType, newRule))
-	}
-	tx, err := a.db.Begin(a.ctx)
+
+	var rules []Rule
+	err := a.model().
+		OrderAsc("id").
+		Scan(&rules)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to scan policy rules: %w", err)
 	}
-	for i := range newRules {
-		str, args := rule.toQuery()
-		if err = tx.Model(a.tableName).Where(str, args...).Scan(&oldRules); err != nil {
-			err = tx.Rollback()
-			return nil, err
-		}
-		if _, err = tx.Model(a.tableName).Where(str, args...).Delete([]Rule{}); err != nil {
-			err = tx.Rollback()
-			return nil, err
-		}
-		if _, err = tx.Model(a.tableName).Data(&newRules[i]).Insert(); err != nil {
-			err = tx.Rollback()
-			return nil, err
-		}
+
+	for _, rule := range rules {
+		a.loadPolicyRule(rule, model)
 	}
-	oldPolicies := make([][]string, 0)
-	for _, v := range oldRules {
-		oldPolicy := v.toSlice()
-		oldPolicies = append(oldPolicies, oldPolicy)
-	}
-	err = tx.Commit()
-	if err != nil {
-		return nil, err
-	}
-	return oldPolicies, err
+
+	return nil
 }
 
-// get query str and args from Rule.
+// LoadFilteredPolicy loads only policy rules that match the filter.
+func (a *Adapter) LoadFilteredPolicy(model model.Model, filter interface{}) error {
+	if model == nil {
+		return errors.New("model cannot be nil")
+	}
+
+	filterRule, ok := filter.(Filter)
+	if !ok {
+		return errors.New("invalid filter type")
+	}
+
+	query := a.model()
+
+	if len(filterRule.PType) > 0 {
+		query = query.WhereIn(Columns.PType, filterRule.PType)
+	}
+	if len(filterRule.V0) > 0 {
+		query = query.WhereIn(Columns.V0, filterRule.V0)
+	}
+	if len(filterRule.V1) > 0 {
+		query = query.WhereIn(Columns.V1, filterRule.V1)
+	}
+	if len(filterRule.V2) > 0 {
+		query = query.WhereIn(Columns.V2, filterRule.V2)
+	}
+	if len(filterRule.V3) > 0 {
+		query = query.WhereIn(Columns.V3, filterRule.V3)
+	}
+	if len(filterRule.V4) > 0 {
+		query = query.WhereIn(Columns.V4, filterRule.V4)
+	}
+	if len(filterRule.V5) > 0 {
+		query = query.WhereIn(Columns.V5, filterRule.V5)
+	}
+
+	var rules []Rule
+	if err := query.Scan(&rules); err != nil {
+		return fmt.Errorf("failed to scan filtered policy rules: %w", err)
+	}
+
+	for _, rule := range rules {
+		a.loadPolicyRule(rule, model)
+	}
+
+	a.isFiltered = true
+	return nil
+}
+
+// toQuery gets query string and args from Rule.
 func (c *Rule) toQuery() (interface{}, []interface{}) {
-	queryArgs := []interface{}{c.PType}
-	queryStr := "p_type = ?"
+	where := "p_type=?"
+	args := []interface{}{c.PType}
+
 	if c.V0 != "" {
-		queryStr += " and v0 = ?"
-		queryArgs = append(queryArgs, c.V0)
+		where += " AND v0=?"
+		args = append(args, c.V0)
 	}
 	if c.V1 != "" {
-		queryStr += " and v1 = ?"
-		queryArgs = append(queryArgs, c.V1)
+		where += " AND v1=?"
+		args = append(args, c.V1)
 	}
 	if c.V2 != "" {
-		queryStr += " and v2 = ?"
-		queryArgs = append(queryArgs, c.V2)
+		where += " AND v2=?"
+		args = append(args, c.V2)
 	}
 	if c.V3 != "" {
-		queryStr += " and v3 = ?"
-		queryArgs = append(queryArgs, c.V3)
+		where += " AND v3=?"
+		args = append(args, c.V3)
 	}
 	if c.V4 != "" {
-		queryStr += " and v4 = ?"
-		queryArgs = append(queryArgs, c.V4)
+		where += " AND v4=?"
+		args = append(args, c.V4)
 	}
 	if c.V5 != "" {
-		queryStr += " and v5 = ?"
-		queryArgs = append(queryArgs, c.V5)
+		where += " AND v5=?"
+		args = append(args, c.V5)
 	}
-	return queryStr, queryArgs
+
+	return where, args
 }
 
-// get slice from Rule.
+// toSlice converts Rule to string slice.
 func (c *Rule) toSlice() []string {
-	var policy []string
-	if c.PType != "" {
-		policy = append(policy, c.PType)
+	if c == nil {
+		return nil
 	}
+
+	res := make([]string, 0, 6)
 	if c.V0 != "" {
-		policy = append(policy, c.V0)
+		res = append(res, c.V0)
 	}
 	if c.V1 != "" {
-		policy = append(policy, c.V1)
+		res = append(res, c.V1)
 	}
 	if c.V2 != "" {
-		policy = append(policy, c.V2)
+		res = append(res, c.V2)
 	}
 	if c.V3 != "" {
-		policy = append(policy, c.V3)
+		res = append(res, c.V3)
 	}
 	if c.V4 != "" {
-		policy = append(policy, c.V4)
+		res = append(res, c.V4)
 	}
 	if c.V5 != "" {
-		policy = append(policy, c.V5)
+		res = append(res, c.V5)
 	}
-	return policy
+
+	return res
 }
 
-// build Rule from slice.
+// buildRule builds Rule from string slice.
 func (a *Adapter) buildRule(pType string, data []string) Rule {
-	rule := Rule{PType: pType}
+	rule := Rule{
+		PType: pType,
+	}
+
 	if len(data) > 0 {
 		rule.V0 = data[0]
 	}
@@ -419,5 +364,229 @@ func (a *Adapter) buildRule(pType string, data []string) Rule {
 	if len(data) > 5 {
 		rule.V5 = data[5]
 	}
+
 	return rule
+}
+
+// loadPolicyRule loads a policy rule into the model.
+func (a *Adapter) loadPolicyRule(rule Rule, model model.Model) {
+	ruleText := rule.toSlice()
+	if len(ruleText) == 0 {
+		return
+	}
+
+	key := rule.PType
+	sec := key[:1]
+	model[sec][key].Policy = append(model[sec][key].Policy, ruleText)
+}
+
+// AddPolicy adds a policy rule to the storage.
+func (a *Adapter) AddPolicy(sec string, pType string, rule []string) error {
+	dbRule := a.buildRule(pType, rule)
+	_, err := a.model().Insert(dbRule)
+	if err != nil {
+		return fmt.Errorf("failed to add policy: %w", err)
+	}
+	return nil
+}
+
+// AddPolicies adds policy rules to the storage.
+func (a *Adapter) AddPolicies(sec string, pType string, rules [][]string) error {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	dbRules := make([]Rule, 0, len(rules))
+	for _, rule := range rules {
+		dbRules = append(dbRules, a.buildRule(pType, rule))
+	}
+
+	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
+		// Insert rules in batches for better performance
+		const batchSize = 1000
+		for i := 0; i < len(dbRules); i += batchSize {
+			end := i + batchSize
+			if end > len(dbRules) {
+				end = len(dbRules)
+			}
+			batch := dbRules[i:end]
+			if _, err := tx.Model(a.tableName).Ctx(ctx).Insert(batch); err != nil {
+				return fmt.Errorf("failed to insert rules batch: %w", err)
+			}
+		}
+		return nil
+	})
+
+	return err
+}
+
+// RemovePolicy removes a policy rule from the storage.
+func (a *Adapter) RemovePolicy(sec string, pType string, rule []string) error {
+	dbRule := a.buildRule(pType, rule)
+	query, args := dbRule.toQuery()
+	_, err := a.model().Where(query, args...).Delete()
+	if err != nil {
+		return fmt.Errorf("failed to delete policy: %w", err)
+	}
+	return nil
+}
+
+// RemovePolicies removes policy rules from the storage.
+func (a *Adapter) RemovePolicies(sec string, pType string, rules [][]string) error {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
+		for _, rule := range rules {
+			dbRule := a.buildRule(pType, rule)
+			query, args := dbRule.toQuery()
+			if _, err := tx.Model(a.tableName).Ctx(ctx).Where(query, args...).Delete(); err != nil {
+				return fmt.Errorf("failed to delete rule: %w", err)
+			}
+		}
+		return nil
+	})
+
+	return err
+}
+
+// RemoveFilteredPolicy removes policy rules that match the filter from the storage.
+func (a *Adapter) RemoveFilteredPolicy(sec string, pType string, fieldIndex int, fieldValues ...string) error {
+	if fieldIndex < 0 || fieldIndex > 5 {
+		return fmt.Errorf("invalid field index: %d", fieldIndex)
+	}
+
+	query := a.model().Where(Columns.PType, pType)
+
+	idx := fieldIndex
+	for _, fieldValue := range fieldValues {
+		if fieldValue != "" {
+			query = query.Where(fmt.Sprintf("v%d", idx), fieldValue)
+		}
+		idx++
+	}
+
+	_, err := query.Delete()
+	if err != nil {
+		return fmt.Errorf("failed to delete filtered policies: %w", err)
+	}
+
+	return nil
+}
+
+// UpdatePolicy updates a policy rule from storage.
+func (a *Adapter) UpdatePolicy(sec string, pType string, oldRule, newRule []string) error {
+	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
+		oldData := a.buildRule(pType, oldRule)
+		query, args := oldData.toQuery()
+
+		// Delete old rule
+		if _, err := tx.Model(a.tableName).Ctx(ctx).Where(query, args...).Delete(); err != nil {
+			return fmt.Errorf("failed to delete old rule: %w", err)
+		}
+
+		// Insert new rule
+		newData := a.buildRule(pType, newRule)
+		if _, err := tx.Model(a.tableName).Ctx(ctx).Insert(newData); err != nil {
+			return fmt.Errorf("failed to insert new rule: %w", err)
+		}
+
+		return nil
+	})
+
+	return err
+}
+
+// UpdatePolicies updates multiple policy rules in the storage.
+func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules [][]string) error {
+	if len(oldRules) != len(newRules) {
+		return errors.New("old rules and new rules have different length")
+	}
+
+	if len(oldRules) == 0 {
+		return nil
+	}
+
+	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
+		for i := 0; i < len(oldRules); i++ {
+			oldRule := a.buildRule(pType, oldRules[i])
+			query, args := oldRule.toQuery()
+
+			// Delete old rule
+			if _, err := tx.Model(a.tableName).Ctx(ctx).Where(query, args...).Delete(); err != nil {
+				return fmt.Errorf("failed to delete old rule: %w", err)
+			}
+
+			// Insert new rule
+			newRule := a.buildRule(pType, newRules[i])
+			if _, err := tx.Model(a.tableName).Ctx(ctx).Insert(newRule); err != nil {
+				return fmt.Errorf("failed to insert new rule: %w", err)
+			}
+		}
+		return nil
+	})
+
+	return err
+}
+
+// UpdateFilteredPolicies deletes old rules and adds new rules.
+func (a *Adapter) UpdateFilteredPolicies(sec string, pType string, newPolicies [][]string, fieldIndex int, fieldValues ...string) ([][]string, error) {
+	// Get old rules
+	var oldRules []Rule
+	query := a.model().Where(Columns.PType, pType)
+
+	idx := fieldIndex
+	for _, fieldValue := range fieldValues {
+		if fieldValue != "" {
+			query = query.Where(fmt.Sprintf("v%d", idx), fieldValue)
+		}
+		idx++
+	}
+
+	if err := query.Scan(&oldRules); err != nil {
+		return nil, fmt.Errorf("failed to scan old rules: %w", err)
+	}
+
+	// Convert old rules to string arrays
+	oldPolicies := make([][]string, 0, len(oldRules))
+	for _, rule := range oldRules {
+		oldPolicies = append(oldPolicies, rule.toSlice())
+	}
+
+	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
+		// Delete old rules
+		if _, err := query.Ctx(ctx).Delete(); err != nil {
+			return fmt.Errorf("failed to delete old rules: %w", err)
+		}
+
+		// Insert new rules
+		if len(newPolicies) > 0 {
+			dbRules := make([]Rule, 0, len(newPolicies))
+			for _, policy := range newPolicies {
+				dbRules = append(dbRules, a.buildRule(pType, policy))
+			}
+
+			// Insert rules in batches for better performance
+			const batchSize = 1000
+			for i := 0; i < len(dbRules); i += batchSize {
+				end := i + batchSize
+				if end > len(dbRules) {
+					end = len(dbRules)
+				}
+				batch := dbRules[i:end]
+				if _, err := tx.Model(a.tableName).Ctx(ctx).Insert(batch); err != nil {
+					return fmt.Errorf("failed to insert new rules batch: %w", err)
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return oldPolicies, nil
 }
