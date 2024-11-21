@@ -366,7 +366,7 @@ func TestAdapters(t *testing.T) {
 		Host:     "127.0.0.1",
 		Port:     "3306",
 		User:     "root",
-		Pass:     "root",
+		Pass:     "rd123456",
 		Name:     "casbin",
 		Charset:  "utf8mb4",
 		Protocol: "tcp",

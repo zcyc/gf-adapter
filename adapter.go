@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS %s (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 `
 	truncateTableSql = `TRUNCATE TABLE %s`
+
+	// defaultBatchSize is the default size for batch operations
+	defaultBatchSize = 1000
+
+	// maxFieldIndex is the maximum field index for policy rules
+	maxFieldIndex = 5
 )
 
 type (
@@ -192,9 +198,8 @@ func (a *Adapter) SavePolicy(model model.Model) error {
 	// Use transaction for better reliability
 	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
 		// Insert rules in batches for better performance
-		const batchSize = 1000
-		for i := 0; i < len(rules); i += batchSize {
-			end := i + batchSize
+		for i := 0; i < len(rules); i += defaultBatchSize {
+			end := i + defaultBatchSize
 			if end > len(rules) {
 				end = len(rules)
 			}
@@ -403,9 +408,8 @@ func (a *Adapter) AddPolicies(sec string, pType string, rules [][]string) error 
 
 	err := a.model().Transaction(a.ctx, func(ctx context.Context, tx gdb.TX) error {
 		// Insert rules in batches for better performance
-		const batchSize = 1000
-		for i := 0; i < len(dbRules); i += batchSize {
-			end := i + batchSize
+		for i := 0; i < len(dbRules); i += defaultBatchSize {
+			end := i + defaultBatchSize
 			if end > len(dbRules) {
 				end = len(dbRules)
 			}
@@ -453,7 +457,7 @@ func (a *Adapter) RemovePolicies(sec string, pType string, rules [][]string) err
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage.
 func (a *Adapter) RemoveFilteredPolicy(sec string, pType string, fieldIndex int, fieldValues ...string) error {
-	if fieldIndex < 0 || fieldIndex > 5 {
+	if fieldIndex < 0 || fieldIndex > maxFieldIndex {
 		return fmt.Errorf("invalid field index: %d", fieldIndex)
 	}
 
@@ -532,6 +536,15 @@ func (a *Adapter) UpdatePolicies(sec string, pType string, oldRules, newRules []
 
 // UpdateFilteredPolicies deletes old rules and adds new rules.
 func (a *Adapter) UpdateFilteredPolicies(sec string, pType string, newPolicies [][]string, fieldIndex int, fieldValues ...string) ([][]string, error) {
+	// Validate parameters
+	if fieldIndex < 0 || fieldIndex > maxFieldIndex {
+		return nil, fmt.Errorf("invalid field index: %d", fieldIndex)
+	}
+
+	if pType == "" {
+		return nil, errors.New("policy type cannot be empty")
+	}
+
 	// Get old rules
 	var oldRules []Rule
 	query := a.model().Where(Columns.PType, pType)
@@ -568,9 +581,8 @@ func (a *Adapter) UpdateFilteredPolicies(sec string, pType string, newPolicies [
 			}
 
 			// Insert rules in batches for better performance
-			const batchSize = 1000
-			for i := 0; i < len(dbRules); i += batchSize {
-				end := i + batchSize
+			for i := 0; i < len(dbRules); i += defaultBatchSize {
+				end := i + defaultBatchSize
 				if end > len(dbRules) {
 					end = len(dbRules)
 				}
