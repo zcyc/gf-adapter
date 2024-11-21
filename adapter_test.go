@@ -19,7 +19,10 @@ import (
 
 func testGetPolicy(t *testing.T, e *casbin.Enforcer, res [][]string) {
 	t.Helper()
-	myRes := e.GetPolicy()
+	myRes, err := e.GetPolicy()
+	if err != nil {
+		t.Error(err)
+	}
 	log.Print("Policy: ", myRes)
 
 	m := make(map[string]bool, len(res))
@@ -311,7 +314,10 @@ func testUpdateFilteredPolicies(t *testing.T, a *Adapter) {
 
 func testGetPolicyWithoutOrder(t *testing.T, e *casbin.Enforcer, res [][]string) {
 	t.Log("testGetPolicyWithoutOrder start")
-	myRes := e.GetPolicy()
+	myRes, err := e.GetPolicy()
+	if err != nil {
+		t.Error(err)
+	}
 	log.Print("Policy: ", myRes)
 
 	if !arrayEqualsWithoutOrder(myRes, res) {
@@ -356,19 +362,52 @@ func arrayEqualsWithoutOrder(a [][]string, b [][]string) bool {
 
 func TestAdapters(t *testing.T) {
 	db, err := gdb.New(gdb.ConfigNode{
-		Type: "mysql",
-		Link: "root:root@tcp(127.0.0.1:3306)/casbin",
+		Type:     "mysql",
+		Host:     "127.0.0.1",
+		Port:     "3306",
+		User:     "root",
+		Pass:     "root",
+		Name:     "casbin",
+		Charset:  "utf8mb4",
+		Protocol: "tcp",
+		Debug:    true,
 	})
-	db.SetDebug(true)
 	if err != nil {
-		panic(err)
+		t.Fatalf("failed to create database connection: %v", err)
 	}
-	a, _ := NewAdapter(context.Background(), "", "", db)
-	testSaveLoad(t, a)
-	testAutoSave(t, a)
-	testFilteredPolicy(t, a)
-	testAddPolicies(t, a)
-	testRemovePolicies(t, a)
-	testUpdatePolicies(t, a)
-	testUpdateFilteredPolicies(t, a)
+
+	// Create adapter with proper error handling
+	a, err := NewAdapter(context.Background(), "", "", db)
+	if err != nil {
+		t.Fatalf("failed to create adapter: %v", err)
+	}
+
+	// Run all test cases
+	t.Run("SaveLoad", func(t *testing.T) {
+		testSaveLoad(t, a)
+	})
+
+	t.Run("AutoSave", func(t *testing.T) {
+		testAutoSave(t, a)
+	})
+
+	t.Run("FilteredPolicy", func(t *testing.T) {
+		testFilteredPolicy(t, a)
+	})
+
+	t.Run("AddPolicies", func(t *testing.T) {
+		testAddPolicies(t, a)
+	})
+
+	t.Run("RemovePolicies", func(t *testing.T) {
+		testRemovePolicies(t, a)
+	})
+
+	t.Run("UpdatePolicies", func(t *testing.T) {
+		testUpdatePolicies(t, a)
+	})
+
+	t.Run("UpdateFilteredPolicies", func(t *testing.T) {
+		testUpdateFilteredPolicies(t, a)
+	})
 }
